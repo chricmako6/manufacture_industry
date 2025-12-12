@@ -32,7 +32,7 @@ function PageVerify() {
         setUser(currentUser);
         setCanAccess(true);
       } else {
-        router.replace("/login");
+        router.replace("/auth");
       }
     });
 
@@ -43,7 +43,7 @@ function PageVerify() {
     try {
       setIsLoggingOut(true);
       await logout();
-      router.replace("/login");
+      router.replace("/auth");
     } catch (error) {
       console.error("Logout error:", error);
     } finally {
@@ -71,15 +71,13 @@ function PageVerify() {
             <h2 className="text-lg font-semibold">{user.displayName || "User"}</h2>
             <p className="text-gray-400 text-sm">{user.email}</p>
           </div>
-            <div className="self-start">
+            <div className="flex-grow flex justify-end">
               <button
                 onClick={handleLogout}
                 disabled={isLoggingOut}
-                variant="ghost"
                 className="p-2 rounded-full text-white/90 hover:bg-white/6"
-                aria-label="Log out"
               >
-                <FiLogOut size={4}/>
+                <FiLogOut className="size-5"/>
               </button>
             </div>
         </div>

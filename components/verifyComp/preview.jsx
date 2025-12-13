@@ -43,7 +43,7 @@ export default function Preview() {
 
   const handleApprove = () => {
     setIsApproved(true);
-    alert('All information has been verified and approved!');
+    alert('All information has been verified and waiting for approval!');
   };
 
   const handleEdit = (section) => {
@@ -241,7 +241,7 @@ export default function Preview() {
             className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 text-white font-bold py-3 px-6 rounded-lg transition duration-200 transform hover:scale-105 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             <FiCheckCircle size={20} />
-            {isApproved ? 'Verified & Approved' : 'Verify & Approve All'}
+            {isApproved ? 'Verified & Wait for Approval' : 'Verify & Approve All'}
           </button>
           <button
             className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 px-6 rounded-lg transition"

@@ -1,11 +1,7 @@
-import Image from "next/image";
+import { redirect } from 'next/navigation';
 
 function Home() {
-  return (
-    <div>
-
-    </div>
-  );
+  // Redirect users visiting the root URL to the auth page
+  redirect('/auth');
 }
-
 export default Home;

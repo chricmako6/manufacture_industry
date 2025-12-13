@@ -7,6 +7,10 @@ import { FaUser, FaCreditCard, FaFileAlt, FaEye } from "react-icons/fa";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { logout } from "@/lib/auth";
+import UserDetail from "@/components/verifyComp/userdetail";
+import PaymentInfo from "@/components/verifyComp/paymentinfo";
+import Document from "@/components/verifyComp/document";
+import Preview from "@/components/verifyComp/preview";
 
 function PageVerify() {
   const [step, setStep] = useState(1);
@@ -32,7 +36,7 @@ function PageVerify() {
         setUser(currentUser);
         setCanAccess(true);
       } else {
-        router.replace("/auth");
+        router.replace("/dashboard");
       }
     });
 
@@ -145,10 +149,10 @@ function PageVerify() {
 
         {/* Step Content */}
         <div className="text-center text-gray-300 mb-10">
-          {step === 1 && "Step User Details content"}
-          {step === 2 && "Step Payment Information content"}
-          {step === 3 && "Step Documents Upload content"}
-          {step === 4 && "Step Preview Form content"}
+          {step === 1 && <UserDetail />}
+          {step === 2 && <PaymentInfo />}
+          {step === 3 && <Document />}
+          {step === 4 && <Preview />}
         </div>
 
         {/* Buttons */}

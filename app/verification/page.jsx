@@ -6,7 +6,7 @@ import { FiLogOut } from "react-icons/fi";
 import { FaUser, FaCreditCard, FaFileAlt, FaEye } from "react-icons/fa";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { logout } from "@/lib/auth";
+import { logout, checkUserStatus } from "@/lib/auth";
 import UserDetail from "@/components/verifyComp/userdetail";
 import PaymentInfo from "@/components/verifyComp/paymentinfo";
 import Document from "@/components/verifyComp/document";
@@ -31,13 +31,25 @@ function PageVerify() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-        setCanAccess(true);
-      } else {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (!currentUser) {
         router.replace("/dashboard");
+        return;
       }
+
+      try {
+        const status = await checkUserStatus(currentUser);
+        if (status?.verified) {
+          // Already submitted/verified -> don't allow access to verification flow
+          router.replace("/dashboard");
+          return;
+        }
+      } catch (err) {
+        console.warn('Error checking user status on verification page:', err);
+      }
+
+      setUser(currentUser);
+      setCanAccess(true);
     });
 
     return () => unsubscribe();

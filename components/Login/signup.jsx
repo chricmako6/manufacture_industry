@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { signup, login } from "@/lib/auth";
+import { signup, login, checkUserStatus, ensureUserDoc } from "@/lib/auth";
 import { getFirebaseAuth, GoogleAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect } from "@/lib/firebase";
 
 function PageLogin() {
@@ -27,6 +27,7 @@ function PageLogin() {
       setIsLoading(true);
       setError("");
       await signup(emailSignUp, passwordSignUp, nameInput);
+      // After signup, user needs to go to verification
       router.push("/verification");
     } catch (error) {
       setError(error.message);
@@ -65,7 +66,25 @@ function PageLogin() {
           throw popupError;
         }
       }
-      router.push("/verification");
+      
+      // Check user status to determine redirect
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        // Ensure a Firestore user doc exists for social sign-ins
+        try {
+          await ensureUserDoc(currentUser);
+        } catch (err) {
+          console.warn('ensureUserDoc failed:', err);
+        }
+        const status = await checkUserStatus(currentUser);
+        if (status?.verified && status?.approved) {
+          router.push("/dashboard");
+        } else if (status?.verified) {
+          router.push("/dashboard"); // Show waiting state on dashboard
+        } else {
+          router.push("/verification");
+        }
+      }
     } catch (error) {
       // Don't show error for cancelled popup
       if (error.code !== "auth/cancelled-popup-request" && error.code !== "auth/popup-closed-by-user") {
@@ -84,7 +103,26 @@ function PageLogin() {
       setIsLoading(true);
       setError("");
       await login(emailLogin, passwordLogin);
-      router.push("/dashboard");
+      
+      // Check user status to determine redirect
+      const auth = getFirebaseAuth();
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        // Ensure Firestore doc exists (for completeness)
+        try {
+          await ensureUserDoc(currentUser);
+        } catch (err) {
+          console.warn('ensureUserDoc failed:', err);
+        }
+        const status = await checkUserStatus(currentUser);
+        if (status?.verified && status?.approved) {
+          router.push("/dashboard");
+        } else if (status?.verified) {
+          router.push("/dashboard"); // Show waiting state on dashboard
+        } else {
+          router.push("/verification");
+        }
+      }
     } catch (error) {
       // Only show actual errors, not cancelled requests
       if (error.code !== "auth/cancelled-popup-request" && error.code !== "auth/popup-closed-by-user") {
@@ -97,7 +135,7 @@ function PageLogin() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-black to-blue-800 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-linear-to-b from-black to-blue-800 p-4">
       <div className="w-full max-w-md bg-[#0f0f11]/80 backdrop-blur-xl rounded-2xl p-8 shadow-2xl border border-white/10">
         {/* Tabs */}
         <div className="flex space-x-6 mb-6 justify-center">

@@ -30,7 +30,7 @@ function Preview() {
           
           if (userDocSnap.exists() && userDocSnap.data()?.verified) {
             // User already verified, redirect to dashboard
-            router.replace("/verification");
+            router.replace("/dashboard");
             return;
           }
           setUser(currentUser);
@@ -46,7 +46,7 @@ function Preview() {
     return () => unsubscribe();
   }, [auth, router, db]);
 
-  // 🚀 Submit verification data
+  // Submit verification data
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -324,7 +324,7 @@ function Preview() {
             type="submit"
             disabled={submitting}
             onClick={handleApprove}
-            className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 text-white font-bold py-3 px-6 rounded-lg transition duration-200 transform hover:scale-105 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="flex-1 bg-linear-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 text-white font-bold py-3 px-6 rounded-lg transition duration-200 transform hover:scale-105 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             <FiCheckCircle size={20} />
             {isApproved ? 'Verified & Wait for Approval' : 'Verify & Approve All'}

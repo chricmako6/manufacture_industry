@@ -1,10 +1,72 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useRouter } from "next/navigation";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { getFirebaseAuth, getFirestoreDb } from "@/lib/firebase";
 import { FiEdit2, FiCheckCircle } from 'react-icons/fi';
 
-export default function Preview() {
+function Preview() {
   const [isApproved, setIsApproved] = useState(false);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const router = useRouter();
+  const auth = getFirebaseAuth();
+  const db = getFirestoreDb();
+
+// 🔐 Ensure user is authenticated
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      if (!currentUser) {
+        router.replace("/auth"); // not logged in
+      } else {
+        setUser(currentUser);
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [auth, router]);
+
+  // 🚀 Submit verification data
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!user) return;
+
+    try {
+      setSubmitting(true);
+
+      // VERY IMPORTANT PART
+      // We use the AUTHENTICATED USER UID and extract data from previewData
+      await setDoc(
+        doc(db, "users", user.uid),
+        {
+          uid: user.uid,
+          email: user.email,
+          verified: true,
+          provider: user.providerData[0]?.providerId,
+          createdAt: serverTimestamp(),
+          personal: previewData.personal,
+          document: previewData.document,
+          payment: previewData.payment,
+        },
+        { merge: true }
+      );
+
+      router.push("/dashboard");
+    } catch (err) {
+      console.error("Verification error:", err);
+      alert("Verification failed");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (loading) return null;
+ 
 
   const previewData = {
     personal: {
@@ -52,7 +114,7 @@ export default function Preview() {
   };
 
   return (
-      <div className="max-w-5xl mx-auto">
+      <form onSubmit={handleSubmit} className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-gray-800 mb-2">Verification Preview</h1>
@@ -236,8 +298,9 @@ export default function Preview() {
         {/* Action Buttons */}
         <div className="flex gap-4 mb-8">
           <button
+            type="submit"
+            disabled={submitting}
             onClick={handleApprove}
-            disabled={isApproved}
             className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 text-white font-bold py-3 px-6 rounded-lg transition duration-200 transform hover:scale-105 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             <FiCheckCircle size={20} />
@@ -256,7 +319,7 @@ export default function Preview() {
             📋 Please review all information carefully. Click on the edit icon next to each section to make corrections.
           </p>
         </div>
-      </div>
+      </form>
     
   );
-}
+}export default Preview;

@@ -30,7 +30,7 @@ function Preview() {
           
           if (userDocSnap.exists() && userDocSnap.data()?.verified) {
             // User already verified, redirect to dashboard
-            router.replace("/dashboard");
+            router.replace("/verification");
             return;
           }
           setUser(currentUser);

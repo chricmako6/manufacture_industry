@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp, getDoc } from "firebase/firestore";
 import { getFirebaseAuth, getFirestoreDb } from "@/lib/firebase";
 import { FiEdit2, FiCheckCircle } from 'react-icons/fi';
 
@@ -16,19 +16,35 @@ function Preview() {
   const auth = getFirebaseAuth();
   const db = getFirestoreDb();
 
-// 🔐 Ensure user is authenticated
+// 🔐 Ensure user is authenticated and not already verified
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (!currentUser) {
         router.replace("/auth"); // not logged in
+        setLoading(false);
       } else {
-        setUser(currentUser);
+        try {
+          // Check if user already submitted verification
+          const userDocRef = doc(db, "users", currentUser.uid);
+          const userDocSnap = await getDoc(userDocRef);
+          
+          if (userDocSnap.exists() && userDocSnap.data()?.verified) {
+            // User already verified, redirect to dashboard
+            router.replace("/dashboard");
+            return;
+          }
+          setUser(currentUser);
+          setLoading(false);
+        } catch (err) {
+          console.log("Error checking verification:", err);
+          setUser(currentUser);
+          setLoading(false);
+        }
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [auth, router]);
+  }, [auth, router, db]);
 
   // 🚀 Submit verification data
   const handleSubmit = async (e) => {
@@ -38,6 +54,7 @@ function Preview() {
 
     try {
       setSubmitting(true);
+      setIsApproved(true); // Show waiting state
 
       // VERY IMPORTANT PART
       // We use the AUTHENTICATED USER UID and extract data from previewData
@@ -47,8 +64,10 @@ function Preview() {
           uid: user.uid,
           email: user.email,
           verified: true,
+          approved: false, // Initially not approved by admin
           provider: user.providerData[0]?.providerId,
           createdAt: serverTimestamp(),
+          submittedAt: serverTimestamp(),
           personal: previewData.personal,
           document: previewData.document,
           payment: previewData.payment,
@@ -56,10 +75,14 @@ function Preview() {
         { merge: true }
       );
 
-      router.push("/dashboard");
+      // Redirect to dashboard with waiting state
+      setTimeout(() => {
+        router.push("/dashboard");
+      }, 1500);
     } catch (err) {
       console.error("Verification error:", err);
-      alert("Verification failed");
+      setIsApproved(false); // Reset on error
+      alert("Verification failed: " + err.message);
     } finally {
       setSubmitting(false);
     }

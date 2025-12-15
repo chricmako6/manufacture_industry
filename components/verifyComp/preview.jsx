@@ -2,13 +2,16 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from "next/navigation";
-import { onAuthStateChanged } from "firebase/auth";
-import { doc, setDoc, serverTimestamp, getDoc } from "firebase/firestore";
+import { onAuthStateChanged, sendEmailVerification } from "firebase/auth";
+import { doc, setDoc, serverTimestamp, getDoc, onSnapshot } from "firebase/firestore";
 import { getFirebaseAuth, getFirestoreDb } from "@/lib/firebase";
 import { FiEdit2, FiCheckCircle } from 'react-icons/fi';
 
 function Preview() {
   const [isApproved, setIsApproved] = useState(false);
+  const [showEmailPrompt, setShowEmailPrompt] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [waitingForApproval, setWaitingForApproval] = useState(false);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -28,8 +31,8 @@ function Preview() {
           const userDocRef = doc(db, "users", currentUser.uid);
           const userDocSnap = await getDoc(userDocRef);
           
-          if (userDocSnap.exists() && userDocSnap.data()?.verified) {
-            // User already verified, redirect to dashboard
+          if (userDocSnap.exists() && userDocSnap.data()?.approved) {
+            // User already approved, redirect to dashboard
             router.replace("/dashboard");
             return;
           }
@@ -63,7 +66,7 @@ function Preview() {
         {
           uid: user.uid,
           email: user.email,
-          verified: true,
+          verified: true, // marks that user submitted verification
           approved: false, // Initially not approved by admin
           provider: user.providerData[0]?.providerId,
           createdAt: serverTimestamp(),
@@ -75,10 +78,41 @@ function Preview() {
         { merge: true }
       );
 
-      // Redirect to dashboard with waiting state
-      setTimeout(() => {
-        router.push("/dashboard");
-      }, 1500);
+      // Refresh auth user to get latest emailVerified state
+      try {
+        if (auth?.currentUser?.reload) await auth.currentUser.reload();
+      } catch (reloadErr) {
+        console.warn('Could not reload user:', reloadErr);
+      }
+
+      const isEmailVerified = !!auth?.currentUser?.emailVerified;
+      setEmailVerified(isEmailVerified);
+
+      if (!isEmailVerified) {
+        // Send verification email and prompt user to check their inbox
+        try {
+          await sendEmailVerification(auth.currentUser);
+        } catch (sendErr) {
+          console.warn('sendEmailVerification failed', sendErr);
+        }
+        setShowEmailPrompt(true);
+        setWaitingForApproval(false);
+      } else {
+        // Email already verified: stay on verification page and wait for admin approval
+        setWaitingForApproval(true);
+
+        // Listen for approved flag on the user document
+        const userDocRef = doc(db, 'users', user.uid);
+        const unsub = onSnapshot(userDocRef, (snap) => {
+          if (!snap.exists()) return;
+          const data = snap.data();
+          if (data.approved) {
+            // approved by admin -> navigate to dashboard
+            unsub();
+            router.push('/dashboard');
+          }
+        });
+      }
     } catch (err) {
       console.error("Verification error:", err);
       setIsApproved(false); // Reset on error
@@ -322,12 +356,11 @@ function Preview() {
         <div className="flex gap-4 mb-8">
           <button
             type="submit"
-            disabled={submitting}
-            onClick={handleApprove}
+            disabled={submitting || waitingForApproval}
             className="flex-1 bg-linear-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 text-white font-bold py-3 px-6 rounded-lg transition duration-200 transform hover:scale-105 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             <FiCheckCircle size={20} />
-            {isApproved ? 'Verified & Wait for Approval' : 'Verify & Approve All'}
+            {waitingForApproval ? 'Waiting for Approval' : isApproved ? 'Verified & Wait for Approval' : 'Verify & Approve All'}
           </button>
           <button
             className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 px-6 rounded-lg transition"
@@ -342,6 +375,83 @@ function Preview() {
             📋 Please review all information carefully. Click on the edit icon next to each section to make corrections.
           </p>
         </div>
+        {/* Modals / Prompts */}
+        {showEmailPrompt && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full text-left">
+              <h3 className="text-lg font-bold mb-2">Verify your email</h3>
+              <p className="text-sm text-gray-700 mb-4">We sent a verification link to <strong>{user?.email}</strong>. Please check your inbox and click the link to verify your email.</p>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={async () => {
+                    try {
+                      await sendEmailVerification(auth.currentUser);
+                      alert('Verification email resent. Check your inbox.');
+                    } catch (err) {
+                      console.error('Resend failed', err);
+                      alert('Could not resend verification email.');
+                    }
+                  }}
+                  className="px-4 py-2 bg-gray-100 rounded"
+                >
+                  Resend
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      if (auth?.currentUser?.reload) await auth.currentUser.reload();
+                      const nowVerified = !!auth.currentUser?.emailVerified;
+                      setEmailVerified(nowVerified);
+                      if (nowVerified) {
+                        setShowEmailPrompt(false);
+                        setWaitingForApproval(true);
+                        // start listening for approval
+                        const userDocRef = doc(db, 'users', user.uid);
+                        const unsub = onSnapshot(userDocRef, (snap) => {
+                          if (!snap.exists()) return;
+                          const data = snap.data();
+                          if (data.approved) {
+                            unsub();
+                            router.push('/dashboard');
+                          }
+                        });
+                      } else {
+                        alert('Email not verified yet. Please check your inbox.');
+                      }
+                    } catch (err) {
+                      console.error('Check verified failed', err);
+                      alert('Could not check verification status.');
+                    }
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white rounded"
+                >
+                  I Verified
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {waitingForApproval && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full text-center">
+              <h3 className="text-xl font-bold mb-2">Waiting for Admin Approval</h3>
+              <p className="text-sm text-gray-700 mb-4">Your documents have been submitted and your email is verified. An administrator will review and approve your account shortly.</p>
+              <p className="text-sm text-gray-500 mb-4">Email: <strong>{user?.email}</strong></p>
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={() => {
+                    // allow user to logout and come back later
+                    router.push('/dashboard');
+                  }}
+                  className="px-4 py-2 bg-gray-200 rounded"
+                >
+                  Back to Dashboard
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </form>
     
   );

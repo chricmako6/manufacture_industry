@@ -39,8 +39,8 @@ function PageVerify() {
 
       try {
         const status = await checkUserStatus(currentUser);
-        if (status?.verified) {
-          // Already submitted/verified -> don't allow access to verification flow
+        if (status?.verified && status?.approved) {
+          // Already submitted & approved -> don't allow access to verification flow
           router.replace("/dashboard");
           return;
         }
@@ -75,7 +75,7 @@ function PageVerify() {
 
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black via-[#050510] to-[#020214] text-white p-6 flex flex-col items-center">
+    <div className="min-h-screen bg-linear-to-b from-black via-[#050510] to-[#020214] text-white p-6 flex flex-col items-center">
 
       {/* Top Profile Card */}
       <div className="w-full max-w-3xl bg-[#111118]/70 backdrop-blur-xl p-5 rounded-xl shadow-2xl border border-white/10 mb-10">
@@ -87,7 +87,7 @@ function PageVerify() {
             <h2 className="text-lg font-semibold">{user.displayName || "User"}</h2>
             <p className="text-gray-400 text-sm">{user.email}</p>
           </div>
-            <div className="flex-grow flex justify-end">
+            <div className="grow flex justify-end">
               <button
                 onClick={handleLogout}
                 disabled={isLoggingOut}

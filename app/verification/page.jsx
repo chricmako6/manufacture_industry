@@ -40,10 +40,13 @@ function PageVerify() {
       try {
         const status = await checkUserStatus(currentUser);
         if (status?.verified && status?.approved) {
-          // Already submitted & approved -> don't allow access to verification flow
+          // Already submitted & approved -> redirect to dashboard
           router.replace("/dashboard");
           return;
         }
+        // Allow access if:
+        // - User is new (no verified flag)
+        // - User has submitted (verified=true) but waiting for approval (approved=false)
       } catch (err) {
         console.warn('Error checking user status on verification page:', err);
       }

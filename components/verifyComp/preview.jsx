@@ -6,6 +6,7 @@ import { onAuthStateChanged, sendEmailVerification } from "firebase/auth";
 import { doc, setDoc, serverTimestamp, getDoc, onSnapshot } from "firebase/firestore";
 import { getFirebaseAuth, getFirestoreDb } from "@/lib/firebase";
 import { FiEdit2, FiCheckCircle } from 'react-icons/fi';
+import Approvalwait from './approvalwait';
 
 function Preview() {
   const [isApproved, setIsApproved] = useState(false);
@@ -49,6 +50,56 @@ function Preview() {
     return () => unsubscribe();
   }, [auth, router, db]);
 
+  // Prevent background scrolling when modals/overlays are shown
+  useEffect(() => {
+    const locked = showEmailPrompt || waitingForApproval;
+    if (typeof window !== 'undefined') {
+      document.body.style.overflow = locked ? 'hidden' : '';
+    }
+    return () => {
+      if (typeof window !== 'undefined') document.body.style.overflow = '';
+    };
+  }, [showEmailPrompt, waitingForApproval]);
+
+  // While user is shown the "check your email" prompt, poll the auth user
+  // to detect when they've clicked the verification link. When verified,
+  // switch to waiting-for-approval and start listening for admin approval.
+  useEffect(() => {
+    let interval = null;
+    let unsub = null;
+
+    if (showEmailPrompt && user) {
+      interval = setInterval(async () => {
+        try {
+          if (auth?.currentUser?.reload) await auth.currentUser.reload();
+          const nowVerified = !!auth?.currentUser?.emailVerified;
+          if (nowVerified) {
+            setEmailVerified(true);
+            setShowEmailPrompt(false);
+            setWaitingForApproval(true);
+
+            const userDocRef = doc(db, 'users', user.uid);
+            unsub = onSnapshot(userDocRef, (snap) => {
+              if (!snap.exists()) return;
+              const data = snap.data();
+              if (data && data.approved) {
+                if (unsub) unsub();
+                router.push('/dashboard');
+              }
+            });
+          }
+        } catch (err) {
+          console.warn('Email verification poll failed', err);
+        }
+      }, 3000);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+      if (unsub) unsub();
+    };
+  }, [showEmailPrompt, user, auth, db, router]);
+
   // Submit verification data
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -66,7 +117,7 @@ function Preview() {
         {
           uid: user.uid,
           email: user.email,
-          verified: true, // marks that user submitted verification
+          verified: false, // marks that user submitted verification
           approved: false, // Initially not approved by admin
           provider: user.providerData[0]?.providerId,
           createdAt: serverTimestamp(),
@@ -171,6 +222,7 @@ function Preview() {
   };
 
   return (
+    <>
       <form onSubmit={handleSubmit} className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -357,6 +409,10 @@ function Preview() {
           <button
             type="submit"
             disabled={submitting || waitingForApproval}
+            onClick={() => {
+                    // allow user to logout and come back later
+                    router.push('/verification');
+                  }}
             className="flex-1 bg-linear-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:from-gray-400 disabled:to-gray-500 text-white font-bold py-3 px-6 rounded-lg transition duration-200 transform hover:scale-105 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             <FiCheckCircle size={20} />
@@ -375,84 +431,16 @@ function Preview() {
             📋 Please review all information carefully. Click on the edit icon next to each section to make corrections.
           </p>
         </div>
-        {/* Modals / Prompts */}
-        {showEmailPrompt && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full text-left">
-              <h3 className="text-lg font-bold mb-2">Verify your email</h3>
-              <p className="text-sm text-gray-700 mb-4">We sent a verification link to <strong>{user?.email}</strong>. Please check your inbox and click the link to verify your email.</p>
-              <div className="flex gap-3 justify-end">
-                <button
-                  onClick={async () => {
-                    try {
-                      await sendEmailVerification(auth.currentUser);
-                      alert('Verification email resent. Check your inbox.');
-                    } catch (err) {
-                      console.error('Resend failed', err);
-                      alert('Could not resend verification email.');
-                    }
-                  }}
-                  className="px-4 py-2 bg-gray-100 rounded"
-                >
-                  Resend
-                </button>
-                <button
-                  onClick={async () => {
-                    try {
-                      if (auth?.currentUser?.reload) await auth.currentUser.reload();
-                      const nowVerified = !!auth.currentUser?.emailVerified;
-                      setEmailVerified(nowVerified);
-                      if (nowVerified) {
-                        setShowEmailPrompt(false);
-                        setWaitingForApproval(true);
-                        // start listening for approval
-                        const userDocRef = doc(db, 'users', user.uid);
-                        const unsub = onSnapshot(userDocRef, (snap) => {
-                          if (!snap.exists()) return;
-                          const data = snap.data();
-                          if (data.approved) {
-                            unsub();
-                            router.push('/dashboard');
-                          }
-                        });
-                      } else {
-                        alert('Email not verified yet. Please check your inbox.');
-                      }
-                    } catch (err) {
-                      console.error('Check verified failed', err);
-                      alert('Could not check verification status.');
-                    }
-                  }}
-                  className="px-4 py-2 bg-blue-600 text-white rounded"
-                >
-                  I Verified
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {waitingForApproval && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full text-center">
-              <h3 className="text-xl font-bold mb-2">Waiting for Admin Approval</h3>
-              <p className="text-sm text-gray-700 mb-4">Your documents have been submitted and your email is verified. An administrator will review and approve your account shortly.</p>
-              <p className="text-sm text-gray-500 mb-4">Email: <strong>{user?.email}</strong></p>
-              <div className="flex gap-3 justify-center">
-                <button
-                  onClick={() => {
-                    // allow user to logout and come back later
-                    router.push('/dashboard');
-                  }}
-                  className="px-4 py-2 bg-gray-200 rounded"
-                >
-                  Back to Dashboard
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </form>
+        
+        {waitingForApproval && (
+          <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center overflow-hidden">
+            <Approvalwait />
+          </div>
+        )}
     
+    </>
   );
-}export default Preview;
+}
+
+export default Preview;

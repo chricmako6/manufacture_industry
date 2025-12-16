@@ -65,8 +65,8 @@ function approvalwait() {
   if (!userData?.verified) {
     return (
       <div className="absolute top-0 left-0 w-full h-full">
-        <div className="w-full max-w-3xl max-h-80 bg-white rounded-lg p-6 text-center">
-          <div className="text-center">
+        <div className="w-full max-w-3xl h-[280px] bg-white rounded-lg p-6 text-center">
+          <div className="text-center my-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
             <p className="text-gray-700 font-medium">Please verify your email. Redirecting...</p>
           </div>
@@ -79,8 +79,8 @@ function approvalwait() {
   // Default waiting UI when userData.verified is true but approved is false
   return (
     <div className=" absolute top-0 left-0 w-full h-full ">
-      <div className="relative max-w-3xl max-h-80 bg-white rounded-lg p-6 text-center">
-        <div className="mb-4 flex items-center justify-center">
+      <div className="relative max-w-3xl h-[280px] bg-white rounded-lg p-6 text-center">
+        <div className="mb-4 flex items-center justify-center my-10">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
         </div>
         <h3 className="relative text-2xl font-bold mb-2">Waiting for Admin Approval</h3>

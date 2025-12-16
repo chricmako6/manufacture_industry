@@ -16,6 +16,7 @@ function Preview() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [showForm, setShowForm] = useState(true);
   const router = useRouter();
   const auth = getFirebaseAuth();
   const db = getFirestoreDb();
@@ -139,6 +140,9 @@ function Preview() {
       const isEmailVerified = !!auth?.currentUser?.emailVerified;
       setEmailVerified(isEmailVerified);
 
+      // Hide form after successful submission
+      setShowForm(false);
+
       if (!isEmailVerified) {
         // Send verification email and prompt user to check their inbox
         try {
@@ -223,6 +227,7 @@ function Preview() {
 
   return (
     <>
+      {showForm && (
       <form onSubmit={handleSubmit} className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -432,8 +437,9 @@ function Preview() {
           </p>
         </div>
       </form>
+      )}
         
-        {waitingForApproval && (
+        {(waitingForApproval || showEmailPrompt) && (
           <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center overflow-hidden">
             <Approvalwait />
           </div>

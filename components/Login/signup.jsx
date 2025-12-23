@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { signup, login, checkUserStatus, ensureUserDoc } from "@/lib/auth";
-import { getFirebaseAuth, GoogleAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect } from "@/lib/firebase";
+import { signup, login, checkUserStatus, ensureUserDoc, resendVerificationEmail } from "@/lib/auth";
+import { getFirebaseAuth, GoogleAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged } from "@/lib/firebase";
 
 function PageLogin() {
   const router = useRouter();
@@ -16,9 +16,44 @@ function PageLogin() {
   const [passwordLogin, setPasswordLogin] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [verificationEmailSent, setVerificationEmailSent] = useState(false);
+  const [awaitingVerification, setAwaitingVerification] = useState(false);
+  const [currentUserEmail, setCurrentUserEmail] = useState("");
 
   const isSignUpValid = nameInput.trim() && emailSignUp.trim() && passwordSignUp.trim();
   const isLoginValid = emailLogin.trim() && passwordLogin.trim();
+
+  // Listen for auth state changes to check if user verified their email
+  useEffect(() => {
+    const auth = getFirebaseAuth();
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user && awaitingVerification) {
+        await user.reload(); // Refresh user data to get latest emailVerified status
+        
+        if (user.emailVerified) {
+          // User verified their email, now check status and redirect
+          try {
+            await ensureUserDoc(user);
+            const status = await checkUserStatus(user);
+            
+            if (status?.verified && status?.approved) {
+              router.push("/dashboard");
+            } else if (status?.verified) {
+              router.push("/dashboard"); // Show waiting state on dashboard
+            } else {
+              router.push("/verification");
+            }
+          } catch (error) {
+            console.error("Error after verification:", error);
+            setError("Verification complete but there was an error. Please sign in again.");
+            setAwaitingVerification(false);
+          }
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [awaitingVerification, router]);
 
   const handleSignUp = async () => {
     if (!isSignUpValid) return;
@@ -26,12 +61,36 @@ function PageLogin() {
     try {
       setIsLoading(true);
       setError("");
+      setVerificationEmailSent(false);
+      
+      // Sign up the user
       await signup(emailSignUp, passwordSignUp, nameInput);
-      // After signup, user needs to go to verification
-      router.push("/verification");
+      
+      // Get the current user
+      const auth = getFirebaseAuth();
+      const user = auth.currentUser;
+      
+      if (user) {
+        // Set awaiting verification state
+        setAwaitingVerification(true);
+        setCurrentUserEmail(emailSignUp);
+        setVerificationEmailSent(true);
+        
+        // Ensure user document is created
+        await ensureUserDoc(user);
+        
+        // Send verification email
+        try {
+          await resendVerificationEmail(user);
+        } catch (emailError) {
+          console.error("Failed to send verification email:", emailError);
+          // Continue anyway - user might have received it
+        }
+      }
     } catch (error) {
       setError(error.message);
       console.error(error.message);
+      setAwaitingVerification(false);
     } finally {
       setIsLoading(false);
     }
@@ -107,8 +166,18 @@ function PageLogin() {
       // Check user status to determine redirect
       const auth = getFirebaseAuth();
       const currentUser = auth.currentUser;
+      
       if (currentUser) {
-        // Ensure Firestore doc exists (for completeness)
+        // Check if email is verified
+        if (!currentUser.emailVerified) {
+          // Email not verified, show awaiting verification
+          setAwaitingVerification(true);
+          setCurrentUserEmail(emailLogin);
+          setVerificationEmailSent(true);
+          return;
+        }
+        
+        // Email is verified, check user status
         try {
           await ensureUserDoc(currentUser);
         } catch (err) {
@@ -133,6 +202,101 @@ function PageLogin() {
       setIsLoading(false);
     }
   };
+
+  const handleResendVerification = async () => {
+    try {
+      setIsLoading(true);
+      setError("");
+      const auth = getFirebaseAuth();
+      const user = auth.currentUser;
+      
+      if (user) {
+        await resendVerificationEmail(user);
+        setVerificationEmailSent(true);
+      }
+    } catch (error) {
+      setError(error.message);
+      console.error(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCancelVerification = () => {
+    setAwaitingVerification(false);
+    setVerificationEmailSent(false);
+    setCurrentUserEmail("");
+    
+    // Sign out the user if they're still logged in
+    const auth = getFirebaseAuth();
+    if (auth.currentUser && !auth.currentUser.emailVerified) {
+      auth.signOut();
+    }
+  };
+
+  // Show awaiting verification overlay
+  if (awaitingVerification) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-linear-to-b from-black to-blue-800 p-4">
+        <div className="w-full max-w-md bg-[#0f0f11]/80 backdrop-blur-xl rounded-2xl p-8 shadow-2xl border border-white/10">
+          <div className="text-center">
+            <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-blue-500/20 flex items-center justify-center">
+              <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+              </svg>
+            </div>
+            
+            <h2 className="text-white text-2xl font-semibold mb-3">
+              Verify Your Email
+            </h2>
+            
+            <p className="text-gray-300 mb-6">
+              We've sent a verification link to:
+              <br />
+              <span className="font-semibold text-blue-300">{currentUserEmail}</span>
+            </p>
+            
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 mb-6">
+              <p className="text-blue-300 text-sm">
+                Please check your inbox (and spam folder) for the verification email. 
+                Click the link in the email to verify your account.
+              </p>
+            </div>
+            
+            {verificationEmailSent && (
+              <div className="mb-6 p-3 bg-green-500/20 border border-green-500/30 rounded-xl">
+                <p className="text-green-400 text-sm">
+                  Verification email sent successfully!
+                </p>
+              </div>
+            )}
+            
+            <div className="space-y-4">
+              <button
+                onClick={handleResendVerification}
+                disabled={isLoading}
+                className="w-full bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white font-semibold rounded-xl py-3"
+              >
+                {isLoading ? "Sending..." : "Resend Verification Email"}
+              </button>
+              
+              <button
+                onClick={handleCancelVerification}
+                disabled={isLoading}
+                className="w-full bg-white/5 hover:bg-white/10 disabled:opacity-50 text-white font-semibold rounded-xl py-3 border border-white/10"
+              >
+                Back to Sign In
+              </button>
+            </div>
+            
+            <p className="text-gray-500 text-xs mt-6">
+              Already verified your email? The page will automatically redirect you.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-linear-to-b from-black to-blue-800 p-4">

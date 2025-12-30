@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { signup, login, checkUserStatus, ensureUserDoc, resendVerificationEmail } from "@/lib/auth";
-import { getFirebaseAuth, GoogleAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged } from "@/lib/firebase";
+import { signup, login, checkUserStatus, ensureUserDoc } from "@/lib/auth";
+import { onAuthStateChanged } from "firebase/auth";
+import { getFirebaseAuth, GoogleAuthProvider,sendEmailVerification,
+   OAuthProvider, signInWithPopup, signInWithRedirect } from "@/lib/firebase";
 
 function PageLogin() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("signup");
-  const [isSignUp, setIsSignUp] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [emailSignUp, setEmailSignUp] = useState("");
   const [passwordSignUp, setPasswordSignUp] = useState("");
@@ -28,7 +29,9 @@ function PageLogin() {
     const auth = getFirebaseAuth();
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user && awaitingVerification) {
-        await user.reload(); // Refresh user data to get latest emailVerified status
+        // Force a token refresh to get latest emailVerified status
+        await user.getIdToken(true);
+        await user.reload(); // Refresh user data
         
         if (user.emailVerified) {
           // User verified their email, now check status and redirect
@@ -43,6 +46,7 @@ function PageLogin() {
             } else {
               router.push("/verification");
             }
+            setAwaitingVerification(false);
           } catch (error) {
             console.error("Error after verification:", error);
             setError("Verification complete but there was an error. Please sign in again.");
@@ -64,33 +68,45 @@ function PageLogin() {
       setVerificationEmailSent(false);
       
       // Sign up the user
-      await signup(emailSignUp, passwordSignUp, nameInput);
+      const userCredential = await signup(emailSignUp, passwordSignUp, nameInput);
+      const user = userCredential.user;
       
-      // Get the current user
-      const auth = getFirebaseAuth();
-      const user = auth.currentUser;
-      
-      if (user) {
+      if (!user.emailVerified) {
+        // Send verification email
+        const actionCodeSettings = {
+          url: `${window.location.origin}/login`,
+          handleCodeInApp: true
+        };
+        
+        await user.sendEmailVerification(actionCodeSettings);
+        
         // Set awaiting verification state
         setAwaitingVerification(true);
         setCurrentUserEmail(emailSignUp);
         setVerificationEmailSent(true);
         
-        // Ensure user document is created
-        await ensureUserDoc(user);
-        
-        // Send verification email
+        toast.success("Verification email sent! Please check your inbox.");
+      } else {
+        // If somehow email is already verified, proceed to check status
         try {
-          await resendVerificationEmail(user);
-        } catch (emailError) {
-          console.error("Failed to send verification email:", emailError);
-          // Continue anyway - user might have received it
+          await ensureUserDoc(user);
+          const status = await checkUserStatus(user);
+          
+          if (status?.verified && status?.approved) {
+            router.push("/dashboard");
+          } else if (status?.verified) {
+            router.push("/dashboard");
+          } else {
+            router.push("/verification");
+          }
+        } catch (err) {
+          console.error("Error after signup:", err);
+          setError("Account created but there was an error. Please sign in.");
         }
       }
     } catch (error) {
       setError(error.message);
       console.error(error.message);
-      setAwaitingVerification(false);
     } finally {
       setIsLoading(false);
     }
@@ -102,11 +118,11 @@ function PageLogin() {
       setError("");
       const auth = getFirebaseAuth();
       let provider;
+      
       if (type === "google") {
         provider = new GoogleAuthProvider();
       } else if (type === "apple") {
         provider = new OAuthProvider("apple.com");
-        // Request common scopes for Apple (email, name)
         try {
           provider.addScope('email');
           provider.addScope('name');
@@ -115,11 +131,14 @@ function PageLogin() {
           // provider.addScope may not be available in some envs; ignore silently
         }
       }
+      
       try {
         await signInWithPopup(auth, provider);
       } catch (popupError) {
         // Fall back to redirect if popups are blocked or not supported
-        if (popupError.code === 'auth/popup-blocked' || popupError.code === 'auth/operation-not-supported-in-this-environment' || popupError.code === 'auth/cancelled-popup-request') {
+        if (popupError.code === 'auth/popup-blocked' || 
+            popupError.code === 'auth/operation-not-supported-in-this-environment' || 
+            popupError.code === 'auth/cancelled-popup-request') {
           await signInWithRedirect(auth, provider);
         } else {
           throw popupError;
@@ -135,6 +154,7 @@ function PageLogin() {
         } catch (err) {
           console.warn('ensureUserDoc failed:', err);
         }
+        
         const status = await checkUserStatus(currentUser);
         if (status?.verified && status?.approved) {
           router.push("/dashboard");
@@ -146,7 +166,8 @@ function PageLogin() {
       }
     } catch (error) {
       // Don't show error for cancelled popup
-      if (error.code !== "auth/cancelled-popup-request" && error.code !== "auth/popup-closed-by-user") {
+      if (error.code !== "auth/cancelled-popup-request" && 
+          error.code !== "auth/popup-closed-by-user") {
         setError(error.message);
         console.error(error.message);
       }
@@ -194,7 +215,8 @@ function PageLogin() {
       }
     } catch (error) {
       // Only show actual errors, not cancelled requests
-      if (error.code !== "auth/cancelled-popup-request" && error.code !== "auth/popup-closed-by-user") {
+      if (error.code !== "auth/cancelled-popup-request" && 
+          error.code !== "auth/popup-closed-by-user") {
         setError(error.message);
       }
       console.error(error.message);
@@ -211,8 +233,14 @@ function PageLogin() {
       const user = auth.currentUser;
       
       if (user) {
-        await resendVerificationEmail(user);
+        const actionCodeSettings = {
+          url: `${window.location.origin}/login`,
+          handleCodeInApp: true
+        };
+        
+        await user.sendEmailVerification(actionCodeSettings);
         setVerificationEmailSent(true);
+        toast.success("Verification email resent!");
       }
     } catch (error) {
       setError(error.message);
@@ -258,15 +286,22 @@ function PageLogin() {
             
             <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 mb-6">
               <p className="text-blue-300 text-sm">
-                Please check your inbox (and spam folder) for the verification email. 
-                Click the link in the email to verify your account.
+                <strong>Instructions:</strong>
+                <br />
+                1. Check your inbox (and spam folder) for the verification email
+                <br />
+                2. Click the link in the email
+                <br />
+                3. You'll be redirected back here automatically
+                <br />
+                4. Your account will be verified instantly
               </p>
             </div>
             
             {verificationEmailSent && (
               <div className="mb-6 p-3 bg-green-500/20 border border-green-500/30 rounded-xl">
                 <p className="text-green-400 text-sm">
-                  Verification email sent successfully!
+                  ✓ Verification email sent successfully!
                 </p>
               </div>
             )}
@@ -289,9 +324,11 @@ function PageLogin() {
               </button>
             </div>
             
-            <p className="text-gray-500 text-xs mt-6">
-              Already verified your email? The page will automatically redirect you.
-            </p>
+            <div className="mt-6 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl">
+              <p className="text-yellow-400 text-xs">
+                <strong>Note:</strong> Make sure to click the verification link in the same browser where you signed up. The verification will happen automatically once you click the link.
+              </p>
+            </div>
           </div>
         </div>
       </div>
